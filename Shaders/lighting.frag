@@ -48,8 +48,8 @@ struct Fog {
 	vec4 color;
 };
 
-// 0 Direction Light; 1 ~ 5 Point Light; 6 ~ 7 Spot Light;
-#define NUM_LIGHTS 8
+// 0 Direction Light; 1 2 3 4 Point Light; 5 6 Spot Light;
+#define NUM_LIGHTS 7
 
 in VS_OUT {
 	vec3 NaviePos;
@@ -60,7 +60,6 @@ in VS_OUT {
 
 uniform vec3 viewPos;
 uniform bool useBlinnPhong;
-uniform bool useSpotExponent;
 uniform bool useLighting;
 uniform bool useDiffuseTexture;
 uniform bool useSpecularTexture;
@@ -128,18 +127,9 @@ vec3 CalcLight(Light light, vec3 normal, vec3 viewDir, vec4 texel_ambient, vec4 
 			if (light.caster == 2) {
 				// Spot Light
 				float intensity = 0.0f;
-				if (useSpotExponent) {
-					float theta = dot(lightDir, normalize(-light.direction));
-					if (theta >= light.cutoff) {
-						intensity = clamp(pow(theta, light.exponent), 0.0, 1.0);
-					} else {
-						intensity = 0.0f;
-					}
-				} else {
-					float theta = dot(lightDir, normalize(-light.direction));
-					float epsilon = light.cutoff - light.outerCutoff;
-					intensity = clamp((theta - light.outerCutoff) / epsilon, 0.0, 1.0);
-				}
+				float theta = dot(lightDir, normalize(-light.direction));
+				float epsilon = light.cutoff - light.outerCutoff;
+				intensity = clamp((theta - light.outerCutoff) / epsilon, 0.0, 1.0);
 
 				ambient *= intensity;
 				diffuse *= intensity;

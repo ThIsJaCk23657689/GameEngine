@@ -9,7 +9,7 @@ project (${MY_PROJECT} LANGUAGES CXX C)
 add_subdirectory(External/Nexus)
 
 # Excecutable file setting
-add_executable(${MY_PROJECT} Source/Main.cpp)
+add_executable(${MY_PROJECT} Source/Main.cpp "Source/Ball.h" "Source/Obstacle.h")
 target_link_libraries(${MY_PROJECT} PUBLIC ${MY_LIBRARY})
 
 # Copy these shader files
