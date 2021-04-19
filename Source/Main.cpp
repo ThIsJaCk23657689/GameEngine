@@ -203,8 +203,6 @@ public:
 		myShader->SetBool("fog.enable", fog->GetEnable());
 		myShader->SetFloat("fog.f_start", fog->GetFogStart());
 		myShader->SetFloat("fog.f_end", fog->GetFogEnd());
-
-
 		
 		/*
 		normalShader->Use();
@@ -216,7 +214,6 @@ public:
 			cube->Draw(normalShader.get(), model->Top());
 		model->Pop();
 		*/
-		
 
 		// ==================== Draw origin and 3 axes ====================
 		if (Settings.ShowOriginAnd3Axes) {
@@ -274,11 +271,12 @@ public:
 		myShader->SetBool("material.enableSpecularTexture", false);
 		myShader->SetBool("material.enableEmission", false);
 		myShader->SetBool("material.enableEmissionTexture", false);
-		myShader->SetVec4("material.ambient", glm::vec4(0.2f, 0.2f, 0.2f, 1.0));
-		myShader->SetVec4("material.diffuse", glm::vec4(1.0f, 0.25f, 0.25f, 1.0));
-		myShader->SetVec4("material.specular", glm::vec4(0.55f, 0.45f, 0.45f, 1.0));
 		myShader->SetFloat("material.shininess", 32.0f);
 		for (unsigned int i = 0; i < balls.size(); i++) {
+			myShader->SetVec4("material.ambient", balls[i].GetAmbient());
+			myShader->SetVec4("material.diffuse", balls[i].GetDiffuse());
+			myShader->SetVec4("material.specular", balls[i].GetSpecular());
+			balls[i].ViewVolumeIncludingTest(view_volume.get());
 			balls[i].Edge();
 			for(unsigned int j = 0; j < balls.size(); j++) {
 				if (i == j) {
@@ -286,18 +284,17 @@ public:
 				}
 				balls[i].CollisionWithBall(balls[j]);
 			}
+			
 			for(unsigned int j = 0; j < obstacles.size(); j++) {
 				balls[i].CollisionWithObstacle(obstacles[j]);
 			}
 			balls[i].Update(DeltaTime);
-
+			
 			model->Push();
 			model->Save(balls[i].GetModel());
 			sphere->Draw(myShader.get(), model->Top());
 			model->Pop();
 		}
-
-		// third_camera->SetTarget(balls[0].GetPosition());
 
 		// ==================== Draw a cube ====================
 		myShader->SetBool("material.enableDiffuseTexture", false);
@@ -327,25 +324,22 @@ public:
 			ProjectionSettings.IsPerspective,
 			Settings.Width,
 			Settings.Height,
-			ProjectionSettings.ClippingLeft,
-			ProjectionSettings.ClippingRight,
-			ProjectionSettings.ClippingBottom,
-			ProjectionSettings.ClippingTop,
 			ProjectionSettings.ClippingNear,
 			ProjectionSettings.ClippingFar,
+			ProjectionSettings.OrthogonalHeight,
 			view
 		);
 		model->Push();
 		myShader->SetVec4("material.ambient", glm::vec4(0.2f, 0.2f, 0.2f, 0.6f));
 		myShader->SetVec4("material.diffuse", glm::vec4(0.6f, 0.6f, 0.6f, 0.6f));
-		myShader->SetVec4("material.specular", glm::vec4(0.0f, 0.0, 0.0, 1.0f));
+		myShader->SetVec4("material.specular", glm::vec4(0.0f, 0.0, 0.0, 0.6f));
 		myShader->SetFloat("material.shininess", 32.0f);
 		myShader->SetMat4("model", model->Top());
 		view_volume->Draw(myShader.get(), model->Top());
+		
 		model->Pop();
 		third_camera->SetTarget(balls[0].GetPosition());
-		
-		
+		myShader->Use();
 		
 		/*
 		// ==================== Draw Sea ====================
@@ -355,7 +349,6 @@ public:
 			floor->Draw(myShader.get(), model->Top());
 		model->Pop();
 
-		
 		// ==================== Draw Seabed ====================
 		model->Push();
 			// ==================== Draw sand ====================
@@ -405,24 +398,7 @@ public:
 		model->Pop();
 		*/
 		
-
-		
-		
-		
-		
-		// ==================== Draw ROV ====================
-
-
-		
-		// ==================== Draw camera ====================
-
-
-
-
-		
-
-		
-		// ==================== draw light ball ====================
+		// ==================== Draw Light Balls ====================
 		myShader->SetBool("material.enableDiffuseTexture", false);
 		myShader->SetBool("material.enableSpecularTexture", false);
 		myShader->SetBool("material.enableEmission", true);
@@ -481,12 +457,11 @@ public:
 				ImGui::Text("Parameters");
 				ImGui::BulletText("FoV = %.2f deg, Aspect = %.2f", Settings.EnableGhostMode ? first_camera->GetFOV() : third_camera->GetFOV(), ProjectionSettings.Aspect);
 				if (!ProjectionSettings.IsPerspective) {
-					ImGui::SliderFloat("Length", &ProjectionSettings.OrthogonalHeight, 10.0f, 200.0f);
+					ImGui::SliderFloat("Length", &ProjectionSettings.OrthogonalHeight, 1.0f, 100.0f);
 				}
-				ImGui::BulletText("left: %.2f, right: %.2f ", ProjectionSettings.ClippingLeft, ProjectionSettings.ClippingTop);
-				ImGui::BulletText("bottom: %.2f, top: %.2f ", ProjectionSettings.ClippingBottom, ProjectionSettings.ClippingTop);
-				ImGui::SliderFloat("Near", &ProjectionSettings.ClippingNear, 0.1, 10);
-				ImGui::SliderFloat("Far", &ProjectionSettings.ClippingFar, 10, 250);
+				ImGui::BulletText("left: %.2f, right: %.2f ", view_volume->ClippingParameters[2], view_volume->ClippingParameters[3]);
+				ImGui::BulletText("bottom: %.2f, top: %.2f ", view_volume->ClippingParameters[0], view_volume->ClippingParameters[1]);
+				ImGui::DragFloatRange2("Near & Far", &ProjectionSettings.ClippingNear, &ProjectionSettings.ClippingFar, 0.1f, 0.1f, 500.0f);
 				ImGui::Spacing();
 
 				if (ImGui::TreeNode("Projection Matrix")) {
@@ -501,27 +476,25 @@ public:
 						ImGui::Text("%.2f", proj[2][i]); ImGui::NextColumn();
 						ImGui::Text("%.2f", proj[3][i]); ImGui::NextColumn();
 						ImGui::Separator();
+						
 					}
 					ImGui::Columns(1);
 
 					ImGui::TreePop();
 				}
 				ImGui::Spacing();
-				/*
+				
 				if (ImGui::TreeNode("View Volume Vertices")) {
-					ImGui::BulletText("rtnp: (%.2f, %.2f, %.2f)", nearPlaneVertex[0].x, nearPlaneVertex[0].y, nearPlaneVertex[0].z);
-					ImGui::BulletText("ltnp: (%.2f, %.2f, %.2f)", nearPlaneVertex[1].x, nearPlaneVertex[1].y, nearPlaneVertex[1].z);
-					ImGui::BulletText("rbnp: (%.2f, %.2f, %.2f)", nearPlaneVertex[2].x, nearPlaneVertex[2].y, nearPlaneVertex[2].z);
-					ImGui::BulletText("lbnp: (%.2f, %.2f, %.2f)", nearPlaneVertex[3].x, nearPlaneVertex[3].y, nearPlaneVertex[3].z);
-					ImGui::BulletText("rtfp: (%.2f, %.2f, %.2f)", farPlaneVertex[0].x, farPlaneVertex[0].y, farPlaneVertex[0].z);
-					ImGui::BulletText("ltfp: (%.2f, %.2f, %.2f)", farPlaneVertex[1].x, farPlaneVertex[1].y, farPlaneVertex[1].z);
-					ImGui::BulletText("rbfp: (%.2f, %.2f, %.2f)", farPlaneVertex[2].x, farPlaneVertex[2].y, farPlaneVertex[2].z);
-					ImGui::BulletText("lbfp: (%.2f, %.2f, %.2f)", farPlaneVertex[3].x, farPlaneVertex[3].y, farPlaneVertex[3].z);
+					view_volume->ShowViewVolumeVerticesImGUI();
 					ImGui::TreePop();
 				}
-				
 				ImGui::Spacing();
-				*/
+
+				if (ImGui::TreeNode("View Volume Normals")) {
+					view_volume->ShowViewVolumeNormalsImGUI();
+					ImGui::TreePop();
+				}
+				ImGui::Spacing();
 
 				ImGui::EndTabItem();
 			}
