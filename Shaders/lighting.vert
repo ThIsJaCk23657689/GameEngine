@@ -11,6 +11,7 @@ out VS_OUT {
 } vs_out;
 
 uniform mat4 model;
+uniform mat3 normalModel;
 uniform mat4 view;
 uniform mat4 projection;
 uniform bool isCubeMap;
@@ -18,7 +19,7 @@ uniform bool isCubeMap;
 void main() {
 	vs_out.NaviePos = aPosition;
 	vs_out.FragPos =  vec3(model * vec4(aPosition, 1.0));
-	vs_out.Normal = mat3(transpose(inverse(model))) * aNormal;
+	vs_out.Normal = normalModel * aNormal;
 	vs_out.TexCoords = aTextureCoords;
 
 	if (isCubeMap) {

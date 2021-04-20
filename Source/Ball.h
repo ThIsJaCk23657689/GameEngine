@@ -113,7 +113,7 @@ public:
 
 	void CollisionWithBall(Ball ball) {
 		float distance = glm::length(this->Position - ball.Position);
-		if (distance < this->Radius * 2.01f) {
+		if (distance < (this->Radius + ball.Radius + 0.01f)) {
 			// Collision
 			glm::vec3 temp = glm::normalize(ball.Position - this->Position) * (this->Radius * 4.01f);
 			ball.Position = this->Position + temp;
