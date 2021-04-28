@@ -48,6 +48,11 @@ struct Fog {
 	vec4 color;
 };
 
+struct Plane {
+	vec3 position;
+	vec3 normal;
+};
+
 // 0 Direction Light; 1 2 3 4 Point Light; 5 6 Spot Light;
 #define NUM_LIGHTS 7
 
@@ -68,10 +73,12 @@ uniform bool useGamma;
 uniform float GammaValue;
 
 uniform bool isCubeMap;
+uniform bool enableCulling;
 uniform samplerCube skybox;
 
 uniform Material material;
 uniform Light lights[NUM_LIGHTS];
+uniform Plane clippingPlanes[6];
 uniform Fog fog;
 
 vec3 CalcLight(Light light, vec3 normal, vec3 viewDir, vec4 texel_ambient, vec4 texel_diffuse, vec4 texel_specular) {
@@ -173,6 +180,19 @@ void main() {
 		}
 	}
 
+	// Culling with view volume
+	if (enableCulling) {
+		for(int i = 0; i < 6; i++) {
+			vec3 temp_1 = normalize(clippingPlanes[i].normal);
+			vec3 temp_2 = normalize(fs_in.FragPos - clippingPlanes[i].position);
+			float angle = dot(temp_1, temp_2);
+			if(angle > 0) {
+				discard;
+				break;
+			}
+		}
+	}
+
 	// 是否開啟光照
 	if (!useLighting) {
 		// 去透明
@@ -193,9 +213,9 @@ void main() {
 		}
 
 		// 開啟自發光
-		if (material.enableEmission) {
+		if (useEmission && material.enableEmission) {
 			// 有開啟自發光選項 且 該物體有開啟自發光
-			if (useEmission && material.enableEmissionTexture) {
+			if (material.enableEmissionTexture) {
 				// 使用自發光材質
 				illumination += texture(material.emission_texture, fs_in.TexCoords).rgb;
 			} else {

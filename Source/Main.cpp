@@ -1,6 +1,3 @@
-#include <imgui.h>
-#include <random>
-
 #include "Application.h"
 #include "Logger.h"
 #include "FirsrPersonCamera.h"
@@ -11,19 +8,19 @@
 #include "Light.h"
 #include "Fog.h"
 
-#include "Triangle.h"
 #include "Rectangle.h"
 #include "Cube.h"
 #include "Sphere.h"
-#include "Cylinder.h"
 #include "ViewVolume.h"
 
 #include "Ball.h"
 #include "Obstacle.h"
 
+#include <random>
+
 std::mt19937_64 rand_generator;
 std::uniform_real_distribution<float> unif_ball_position_xz(-8, 8);
-std::uniform_real_distribution<float> unif_ball_position_y(2, 8);
+std::uniform_real_distribution<float> unif_ball_position_y(2, 18);
 std::uniform_real_distribution<float> unif_ball_velocity(-2, 2);
 
 class NexusDemo final : public Nexus::Application {
@@ -31,11 +28,12 @@ public:
 	NexusDemo() {
 		Settings.Width = 800;
 		Settings.Height = 600;
-		Settings.WindowTitle = "NexusDemo | Nexus";
+		Settings.WindowTitle = "Game Engine #2 | Collision Detection & Culling";
 		Settings.EnableDebugCallback = true;
 		Settings.EnableFullScreen = false;
 
 		Settings.EnableGhostMode = true;
+		Settings.EnableBackFaceCulling = true;
 		Settings.ShowOriginAnd3Axes = false;
 		
 		Settings.UseBlinnPhongShading = true;
@@ -55,7 +53,6 @@ public:
 	}
 
 	void Initialize() override {
-		
 		// Setting OpenGL
 		glEnable(GL_MULTISAMPLE);
 		glEnable(GL_DEPTH_TEST);
@@ -63,35 +60,28 @@ public:
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 		// Create shader program
-		// myShader = std::make_unique<Nexus::Shader>("Shaders/testing.vert", "Shaders/testing.frag");
 		myShader = std::make_unique<Nexus::Shader>("Shaders/lighting.vert", "Shaders/lighting.frag");
 		normalShader = std::make_unique<Nexus::Shader>("Shaders/normal_visualization.vs", "Shaders/normal_visualization.fs", "Shaders/normal_visualization.gs");
 		
 		// Create Camera
 		first_camera = std::make_unique<Nexus::FirstPersonCamera>(glm::vec3(0.0f, 2.0f, 5.0f));
 		third_camera = std::make_unique<Nexus::ThirdPersonCamera>(glm::vec3(0.0f, 0.0f, 5.0f));
-
+		first_camera->SetRestrict(true);
+		first_camera->SetRestrictValue(glm::vec3(-10.0f, 0.0f, -10.0f), glm::vec3(10.0f, 20.0f, 10.0f));
+		third_camera->SetRestrict(true);
+		third_camera->SetRestrictValue(glm::vec3(-10.0f, 0.0f, -10.0f), glm::vec3(10.0f, 20.0f, 10.0f));
+		
 		// Create Matrix Stack
 		model = std::make_unique<Nexus::MatrixStack>();
 
 		// Create object data
-		triangle = std::make_unique<Nexus::Triangle>();
 		floor = std::make_unique<Nexus::Rectangle>(20.0f, 20.0f, 10.0f, Nexus::POS_Y);
-		plane = std::make_unique<Nexus::Rectangle>();
-		square = std::make_unique<Nexus::Rectangle>(Nexus::POS_X);
-		cube = std::make_unique<Nexus::Cube>();;
+		cube = std::make_unique<Nexus::Cube>();
 		sphere = std::make_unique<Nexus::Sphere>();
-		cylinder = std::make_unique<Nexus::Cylinder>(1.0f, 0.1f, 3.0f);
 
 		view_volume = std::make_unique<Nexus::ViewVolume>();
 
 		// Loading textures
-		texture_sea = Nexus::Texture2D::CreateFromFile("Resource/Textures/sea.jpg", true);
-		texture_sand = Nexus::Texture2D::CreateFromFile("Resource/Textures/sand.jpg", true);
-		texture_grass = Nexus::Texture2D::CreateFromFile("Resource/Textures/grass.png", true);
-		texture_box = Nexus::Texture2D::CreateFromFile("Resource/Textures/wooden_box.png", true);
-		texture_box_spec = Nexus::Texture2D::CreateFromFile("Resource/Textures/wooden_box_specular.png", true);
-		texture_fish = Nexus::Texture2D::CreateFromFile("Resource/Textures/fish.png", true);
 		texture_checkerboard = Nexus::Texture2D::CreateFromFile("Resource/Textures/chessboard-metal.png", true);
 		texture_checkerboard->SetWrappingParams(GL_REPEAT, GL_REPEAT);
 
@@ -109,11 +99,14 @@ public:
 			new Nexus::SpotLight(third_camera->GetPosition(), third_camera->GetFront(), false),
 			new Nexus::SpotLight(first_camera->GetPosition(), first_camera->GetFront(), false)
 		};
+		SpotLights[0]->SetCutoff(10.0f);
+		SpotLights[0]->SetOuterCutoff(25.0f);
 		SpotLights[1]->SetCutoff(6.0f);
 		SpotLights[1]->SetOuterCutoff(30.0f);
 
 		// Fog
-		fog = std::make_unique<Nexus::Fog>(glm::vec4(0.266f, 0.5f, 0.609f, 1.0f), false, 0.1f, 100.0f);
+		fog = std::make_unique<Nexus::Fog>(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f), true, 0.1f, 100.0f);
+		fog->SetDensity(0.01f);
 
 		// Balls
 		for (unsigned int i = 0; i < 200; i++) {
@@ -134,11 +127,20 @@ public:
 	
 	void Update(Nexus::DisplayMode monitor_type) override {
 
+		if(Settings.EnableBackFaceCulling) {
+			glEnable(GL_CULL_FACE);
+			glCullFace(GL_BACK);
+			glFrontFace(GL_CW);
+		} else {
+			glDisable(GL_CULL_FACE);
+		}
+
 		SetViewMatrix(monitor_type);
 		SetProjectionMatrix(monitor_type);
 		SetViewport(monitor_type);
 
 		myShader->Use();
+		myShader->SetBool("enableCulling", false);
 		myShader->SetInt("material.diffuse_texture", 0);
 		myShader->SetInt("material.specular_texture", 1);
 		myShader->SetInt("material.emission_texture", 2);
@@ -204,20 +206,15 @@ public:
 		myShader->SetFloat("fog.f_start", fog->GetFogStart());
 		myShader->SetFloat("fog.f_end", fog->GetFogEnd());
 
-
+		for (unsigned int i = 0; i < 6; i++) {
+			if (i <= 2) {
+				myShader->SetVec3("clippingPlanes[" + std::to_string(i) + "].position", view_volume->NearPlaneVertex[0]);
+			} else {
+				myShader->SetVec3("clippingPlanes[" + std::to_string(i) + "].position", view_volume->FarPlaneVertex[1]);
+			}
+			myShader->SetVec3("clippingPlanes[" + std::to_string(i) + "].normal", view_volume->ViewVolumeNormal[i]);
+		}
 		
-		/*
-		normalShader->Use();
-		normalShader->SetMat4("view", view);
-		normalShader->SetMat4("projection", projection);
-		model->Push();
-			model->Save(glm::translate(model->Top(), glm::vec3(8.0f, 1.0f, 0.0f)));
-			cube->SetTexture(0, texture_sea.get());
-			cube->Draw(normalShader.get(), model->Top());
-		model->Pop();
-		*/
-		
-
 		// ==================== Draw origin and 3 axes ====================
 		if (Settings.ShowOriginAnd3Axes) {
 			this->DrawOriginAnd3Axes(myShader.get());
@@ -270,36 +267,35 @@ public:
 		model->Pop();
 		
 		// ==================== Draw Ball ====================
+		myShader->SetBool("enableCulling", enalbe_ball_culling);
 		myShader->SetBool("material.enableDiffuseTexture", false);
 		myShader->SetBool("material.enableSpecularTexture", false);
 		myShader->SetBool("material.enableEmission", false);
 		myShader->SetBool("material.enableEmissionTexture", false);
-		myShader->SetVec4("material.ambient", glm::vec4(0.2f, 0.2f, 0.2f, 1.0));
-		myShader->SetVec4("material.diffuse", glm::vec4(1.0f, 0.25f, 0.25f, 1.0));
-		myShader->SetVec4("material.specular", glm::vec4(0.55f, 0.45f, 0.45f, 1.0));
 		myShader->SetFloat("material.shininess", 32.0f);
 		for (unsigned int i = 0; i < balls.size(); i++) {
+			myShader->SetVec4("material.ambient", balls[i].GetAmbient());
+			myShader->SetVec4("material.diffuse", balls[i].GetDiffuse());
+			myShader->SetVec4("material.specular", balls[i].GetSpecular());
+			balls[i].ViewVolumeIncludingTest(view_volume.get());
 			balls[i].Edge();
-			for(unsigned int j = 0; j < balls.size(); j++) {
-				if (i == j) {
-					continue;
-				}
+			for(unsigned int j = (i + 1); j < balls.size(); j++) {
 				balls[i].CollisionWithBall(balls[j]);
 			}
+			
 			for(unsigned int j = 0; j < obstacles.size(); j++) {
 				balls[i].CollisionWithObstacle(obstacles[j]);
 			}
 			balls[i].Update(DeltaTime);
-
+			
 			model->Push();
 			model->Save(balls[i].GetModel());
 			sphere->Draw(myShader.get(), model->Top());
 			model->Pop();
 		}
 
-		// third_camera->SetTarget(balls[0].GetPosition());
-
 		// ==================== Draw a cube ====================
+		myShader->SetBool("enableCulling", false);
 		myShader->SetBool("material.enableDiffuseTexture", false);
 		myShader->SetBool("material.enableSpecularTexture", false);
 		myShader->SetBool("material.enableEmission", false);
@@ -327,102 +323,24 @@ public:
 			ProjectionSettings.IsPerspective,
 			Settings.Width,
 			Settings.Height,
-			ProjectionSettings.ClippingLeft,
-			ProjectionSettings.ClippingRight,
-			ProjectionSettings.ClippingBottom,
-			ProjectionSettings.ClippingTop,
 			ProjectionSettings.ClippingNear,
 			ProjectionSettings.ClippingFar,
+			ProjectionSettings.OrthogonalHeight,
 			view
 		);
 		model->Push();
 		myShader->SetVec4("material.ambient", glm::vec4(0.2f, 0.2f, 0.2f, 0.6f));
 		myShader->SetVec4("material.diffuse", glm::vec4(0.6f, 0.6f, 0.6f, 0.6f));
-		myShader->SetVec4("material.specular", glm::vec4(0.0f, 0.0, 0.0, 1.0f));
+		myShader->SetVec4("material.specular", glm::vec4(0.0f, 0.0, 0.0, 0.6f));
 		myShader->SetFloat("material.shininess", 32.0f);
 		myShader->SetMat4("model", model->Top());
 		view_volume->Draw(myShader.get(), model->Top());
+		
 		model->Pop();
 		third_camera->SetTarget(balls[0].GetPosition());
+		myShader->Use();
 		
-		
-		
-		/*
-		// ==================== Draw Sea ====================
-		model->Push();
-			floor->SetTexture(0, texture_sea.get());
-			floor->SetShininess(64.0f);
-			floor->Draw(myShader.get(), model->Top());
-		model->Pop();
-
-		
-		// ==================== Draw Seabed ====================
-		model->Push();
-			// ==================== Draw sand ====================
-			model->Save(glm::translate(model->Top(), glm::vec3(0.0f, -5.0f, 0.0f)));
-			floor->SetTexture(0, texture_sand.get());
-			floor->SetShininess(64.0f);
-			floor->Draw(myShader.get(), model->Top());
-
-			// ==================== Draw grass ====================
-			model->Save(glm::translate(model->Top(), glm::vec3(0.0f, 0.5f, 0.0f)));
-			plane->SetTexture(0, texture_grass.get());
-			plane->SetShininess(16.0f);
-			plane->Draw(myShader.get(), model->Top());
-
-			// ==================== Draw Stone ====================
-			model->Push();
-				model->Save(glm::translate(model->Top(), glm::vec3(0.0f, 3.0f, 5.0f)));
-				cylinder->SetMaterialColor(glm::vec3(0.2, 0.8, 0.9));
-				cylinder->SetShininess(16.0f);
-				cylinder->Draw(myShader.get(), model->Top());
-
-				model->Save(glm::translate(model->Top(), glm::vec3(3.0f, 0.0f, 0.0f)));
-				cylinder->SetMaterialColor(glm::vec3(0.9, 0.0, 0.0));
-				cylinder->SetShininess(16.0f);
-				cylinder->Draw(myShader.get(), model->Top());
-			model->Pop();
-		model->Pop();
-
-		// ==================== Draw fishes ====================
-		model->Push();
-			model->Save(glm::translate(model->Top(), glm::vec3(0.0f, -2.5f, 0.0f)));
-			plane->SetTexture(0, texture_fish.get());
-			plane->SetShininess(16.0f);
-			plane->Draw(myShader.get(), model->Top());
-		model->Pop();
-
-		// ==================== Draw obstacles ====================
-		
-		myShader->SetBool("material.enableDiffuseTexture", true);
-		myShader->SetBool("material.enableSpecularTexture", true);
-		myShader->SetBool("material.enableEmission", false);
-		myShader->SetBool("material.enableEmissionTexture", false);
-		myShader->SetFloat("material.shininess", 64.0f);
-		model->Push();
-			model->Save(glm::translate(model->Top(), glm::vec3(0.0f, 0.0f, 0.0f)));
-			cube->Draw(myShader.get(), model->Top());
-		model->Pop();
-		*/
-		
-
-		
-		
-		
-		
-		// ==================== Draw ROV ====================
-
-
-		
-		// ==================== Draw camera ====================
-
-
-
-
-		
-
-		
-		// ==================== draw light ball ====================
+		// ==================== Draw Light Balls ====================
 		myShader->SetBool("material.enableDiffuseTexture", false);
 		myShader->SetBool("material.enableSpecularTexture", false);
 		myShader->SetBool("material.enableEmission", true);
@@ -460,8 +378,14 @@ public:
 					third_camera->ShowDebugUI("Third Person Camera");
 					ImGui::BulletText("Distance: %.2f", third_camera->GetDistance());
 				}
+				if (ImGui::Button("Reset Position")) {
+					first_camera->SetPosition(glm::vec3(0.0f, 3.0f, 5.0f));
+					first_camera->SetPitch(0.0f);
+					first_camera->SetYaw(0.0f);
+				}
 				ImGui::EndTabItem();
 			}
+			
 
 			if (ImGui::BeginTabItem("Ball")) {
 				ImGui::Text("Ball amount: %d", balls.size());
@@ -469,8 +393,28 @@ public:
 					Ball temp_ball(first_camera->GetPosition(), first_camera->GetFront() * abs(unif_ball_velocity(rand_generator)));
 					balls.push_back(temp_ball);
 				}
-				if (ImGui::Button("Deleted")) {
-					balls.pop_back();
+				if (ImGui::Button("Add 10")) {
+					for (unsigned int i = 0; i < 10; i++) {
+						glm::vec3 ball_position = glm::vec3(unif_ball_position_xz(rand_generator), unif_ball_position_y(rand_generator), unif_ball_position_xz(rand_generator));
+						glm::vec3 ball_velocity = glm::vec3(unif_ball_velocity(rand_generator), unif_ball_velocity(rand_generator), unif_ball_velocity(rand_generator));
+						Ball temp_ball(ball_position, ball_velocity);
+						balls.push_back(temp_ball);
+					}
+				}
+				if(!balls.empty()) {
+					if (ImGui::Button("Delete")) {
+						balls.pop_back();
+					}
+					if(balls.size() >= 10) {
+						if (ImGui::Button("Delete 10")) {
+							for (unsigned int i = 0; i < 10; i++) {
+								balls.pop_back();
+							}
+						}
+					}
+					if (ImGui::Button("Delete All")) {
+						balls.clear();
+					}
 				}
 				ImGui::EndTabItem();
 			}
@@ -481,12 +425,11 @@ public:
 				ImGui::Text("Parameters");
 				ImGui::BulletText("FoV = %.2f deg, Aspect = %.2f", Settings.EnableGhostMode ? first_camera->GetFOV() : third_camera->GetFOV(), ProjectionSettings.Aspect);
 				if (!ProjectionSettings.IsPerspective) {
-					ImGui::SliderFloat("Length", &ProjectionSettings.OrthogonalHeight, 10.0f, 200.0f);
+					ImGui::SliderFloat("Length", &ProjectionSettings.OrthogonalHeight, 1.0f, 100.0f);
 				}
-				ImGui::BulletText("left: %.2f, right: %.2f ", ProjectionSettings.ClippingLeft, ProjectionSettings.ClippingTop);
-				ImGui::BulletText("bottom: %.2f, top: %.2f ", ProjectionSettings.ClippingBottom, ProjectionSettings.ClippingTop);
-				ImGui::SliderFloat("Near", &ProjectionSettings.ClippingNear, 0.1, 10);
-				ImGui::SliderFloat("Far", &ProjectionSettings.ClippingFar, 10, 250);
+				ImGui::BulletText("left: %.2f, right: %.2f ", view_volume->ClippingParameters[2], view_volume->ClippingParameters[3]);
+				ImGui::BulletText("bottom: %.2f, top: %.2f ", view_volume->ClippingParameters[0], view_volume->ClippingParameters[1]);
+				ImGui::DragFloatRange2("Near & Far", &ProjectionSettings.ClippingNear, &ProjectionSettings.ClippingFar, 0.1f, 0.1f, 500.0f);
 				ImGui::Spacing();
 
 				if (ImGui::TreeNode("Projection Matrix")) {
@@ -501,27 +444,25 @@ public:
 						ImGui::Text("%.2f", proj[2][i]); ImGui::NextColumn();
 						ImGui::Text("%.2f", proj[3][i]); ImGui::NextColumn();
 						ImGui::Separator();
+						
 					}
 					ImGui::Columns(1);
 
 					ImGui::TreePop();
 				}
 				ImGui::Spacing();
-				/*
+				
 				if (ImGui::TreeNode("View Volume Vertices")) {
-					ImGui::BulletText("rtnp: (%.2f, %.2f, %.2f)", nearPlaneVertex[0].x, nearPlaneVertex[0].y, nearPlaneVertex[0].z);
-					ImGui::BulletText("ltnp: (%.2f, %.2f, %.2f)", nearPlaneVertex[1].x, nearPlaneVertex[1].y, nearPlaneVertex[1].z);
-					ImGui::BulletText("rbnp: (%.2f, %.2f, %.2f)", nearPlaneVertex[2].x, nearPlaneVertex[2].y, nearPlaneVertex[2].z);
-					ImGui::BulletText("lbnp: (%.2f, %.2f, %.2f)", nearPlaneVertex[3].x, nearPlaneVertex[3].y, nearPlaneVertex[3].z);
-					ImGui::BulletText("rtfp: (%.2f, %.2f, %.2f)", farPlaneVertex[0].x, farPlaneVertex[0].y, farPlaneVertex[0].z);
-					ImGui::BulletText("ltfp: (%.2f, %.2f, %.2f)", farPlaneVertex[1].x, farPlaneVertex[1].y, farPlaneVertex[1].z);
-					ImGui::BulletText("rbfp: (%.2f, %.2f, %.2f)", farPlaneVertex[2].x, farPlaneVertex[2].y, farPlaneVertex[2].z);
-					ImGui::BulletText("lbfp: (%.2f, %.2f, %.2f)", farPlaneVertex[3].x, farPlaneVertex[3].y, farPlaneVertex[3].z);
+					view_volume->ShowViewVolumeVerticesImGUI();
 					ImGui::TreePop();
 				}
-				
 				ImGui::Spacing();
-				*/
+
+				if (ImGui::TreeNode("View Volume Normals")) {
+					view_volume->ShowViewVolumeNormalsImGUI();
+					ImGui::TreePop();
+				}
+				ImGui::Spacing();
 
 				ImGui::EndTabItem();
 			}
@@ -571,11 +512,11 @@ public:
 			}
 			
 			if (ImGui::BeginTabItem("Illustration")) {
-				// ImGui::Text("Current Screen: %d", currentScreen + 1);
-				// ImGui::Text("Projection Mode: %s", isPerspective ? "Perspective" : "Orthogonal");
+				ImGui::Text("Current Screen: %d", Settings.CurrentDisplyMode);
 				ImGui::Text("Showing Axes: %s", Settings.ShowOriginAnd3Axes ? "True" : "false");
+				ImGui::Checkbox("Back Face Culling", &Settings.EnableBackFaceCulling); 
+				ImGui::Checkbox("Enable Ball Culling", &enalbe_ball_culling);
 				// ImGui::Text("Full Screen:  %s", isfullscreen ? "True" : "false");
-				// ImGui::SliderFloat("zoom", &distanceOrthoCamera, 5, 25);
 				ImGui::Spacing();
 
 				ImGui::EndTabItem();
@@ -856,7 +797,7 @@ public:
 			ProjectionSettings.OrthogonalHeight = 100.0f;
 		}
 	}
-
+	
 private:
 	std::unique_ptr<Nexus::Shader> myShader = nullptr;
 	std::unique_ptr<Nexus::Shader> normalShader = nullptr;
@@ -868,22 +809,11 @@ private:
 	glm::mat4 view = glm::mat4(1.0f);
 	glm::mat4 projection = glm::mat4(1.0f);
 
-	std::unique_ptr<Nexus::Triangle> triangle = nullptr;
 	std::unique_ptr<Nexus::Rectangle> floor = nullptr;
-	std::unique_ptr<Nexus::Rectangle> wall = nullptr;
-	std::unique_ptr<Nexus::Rectangle> plane = nullptr;
-	std::unique_ptr<Nexus::Rectangle> square = nullptr;
 	std::unique_ptr<Nexus::Cube> cube = nullptr;
 	std::unique_ptr<Nexus::Sphere> sphere = nullptr;
-	std::unique_ptr<Nexus::Cylinder> cylinder = nullptr;
 	std::unique_ptr<Nexus::ViewVolume> view_volume = nullptr;
 
-	std::unique_ptr<Nexus::Texture2D> texture_sea = nullptr;
-	std::unique_ptr<Nexus::Texture2D> texture_sand = nullptr;
-	std::unique_ptr<Nexus::Texture2D> texture_grass = nullptr;
-	std::unique_ptr<Nexus::Texture2D> texture_box = nullptr;
-	std::unique_ptr<Nexus::Texture2D> texture_box_spec = nullptr;
-	std::unique_ptr<Nexus::Texture2D> texture_fish = nullptr;
 	std::unique_ptr<Nexus::Texture2D> texture_checkerboard = nullptr;
 
 	std::vector<Nexus::DirectionalLight*> DirLights;
@@ -894,6 +824,7 @@ private:
 
 	std::vector<Ball> balls;
 	std::vector<Obstacle> obstacles;
+	bool enalbe_ball_culling = false;
 };
 
 int main() {
