@@ -33,7 +33,7 @@ public:
 		Settings.EnableFullScreen = false;
 
 		Settings.EnableGhostMode = true;
-		Settings.EnableBackFaceCulling = true;
+		Settings.EnableBackFaceCulling = false;
 		Settings.ShowOriginAnd3Axes = false;
 		
 		Settings.UseBlinnPhongShading = true;
@@ -60,7 +60,10 @@ public:
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 		// Create shader program
-		myShader = std::make_unique<Nexus::Shader>("Shaders/lighting.vert", "Shaders/lighting.frag");
+		// myShader = std::make_unique<Nexus::Shader>("Shaders/lighting.vert", "Shaders/lighting.frag");
+		myShader = std::make_unique<Nexus::Shader>("Shaders/lighting_shadow.vert", "Shaders/lighting_shadow.frag");
+		simpleDepthShader = std::make_unique<Nexus::Shader>("Shaders/simple_depth_shader.vert", "Shaders/simple_depth_shader.frag");
+		debugDepthQuad = std::make_unique<Nexus::Shader>("Shaders/debug_quad.vert", "Shaders/debug_quad_depth.frag");
 		normalShader = std::make_unique<Nexus::Shader>("Shaders/normal_visualization.vs", "Shaders/normal_visualization.fs", "Shaders/normal_visualization.gs");
 		
 		// Create Camera
@@ -87,7 +90,7 @@ public:
 
 		// Initial Light Setting
 		DirLights = {
-			new Nexus::DirectionalLight(glm::vec3(-0.2f, -1.0f, -0.3f), true)
+			new Nexus::DirectionalLight(glm::vec3(3.0f, -1.0f, -2.0f), true)
 		};
 		PointLights = {
 			new Nexus::PointLight(glm::vec3(-7.1f, 14.2f, -1.4f), false),
@@ -103,6 +106,24 @@ public:
 		SpotLights[0]->SetOuterCutoff(25.0f);
 		SpotLights[1]->SetCutoff(6.0f);
 		SpotLights[1]->SetOuterCutoff(30.0f);
+
+		// Shadow
+		glGenFramebuffers(1, &depth_map_fbo);
+		glGenTextures(1, &depth_map);
+		glBindTexture(GL_TEXTURE_2D, depth_map);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+		GLfloat borderColor[] = { 1.0, 1.0, 1.0, 1.0 };
+		glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, depth_map_fbo);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depth_map, 0);
+		glDrawBuffer(GL_NONE);
+		glReadBuffer(GL_NONE);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 		// Fog
 		fog = std::make_unique<Nexus::Fog>(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f), true, 0.1f, 100.0f);
@@ -127,7 +148,36 @@ public:
 	
 	void Update(Nexus::DisplayMode monitor_type) override {
 
-		if(Settings.EnableBackFaceCulling) {
+		glEnable(GL_CULL_FACE);
+		glCullFace(GL_FRONT);
+		glFrontFace(GL_CW);
+		
+		// 1. 先渲染深度貼圖
+		float light_near_plane = 1.0f, light_far_plane = 20.0f;
+		glm::mat4 light_view = glm::lookAt(DirLights[0]->GetDirection() * -1.0f, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		glm::mat4 light_projection = GetOrthoProjMatrix(-10.0f, 10.0f, -10.0f, 10.0f, light_near_plane, light_far_plane);
+		glm::mat4 light_space_matrix = light_projection * light_view;
+		simpleDepthShader->Use();
+		simpleDepthShader->SetMat4("lightSpaceMatrix", light_space_matrix);
+		glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
+		glBindFramebuffer(GL_FRAMEBUFFER, depth_map_fbo);
+		glClear(GL_DEPTH_BUFFER_BIT);
+		RenderSceneForDepth(simpleDepthShader);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		
+		/*
+		SetViewMatrix(monitor_type);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		debugDepthQuad->Use();
+		debugDepthQuad->SetInt("depthMap", 0);
+		debugDepthQuad->SetFloat("nearPlane", light_near_plane);
+		debugDepthQuad->SetFloat("farPlane", light_far_plane);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, depth_map);
+		RenderQuad();
+		*/
+
+		if (Settings.EnableBackFaceCulling) {
 			glEnable(GL_CULL_FACE);
 			glCullFace(GL_BACK);
 			glFrontFace(GL_CW);
@@ -135,6 +185,8 @@ public:
 			glDisable(GL_CULL_FACE);
 		}
 
+		// 2. 使用正常的方式渲染場景
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		SetViewMatrix(monitor_type);
 		SetProjectionMatrix(monitor_type);
 		SetViewport(monitor_type);
@@ -144,11 +196,16 @@ public:
 		myShader->SetInt("material.diffuse_texture", 0);
 		myShader->SetInt("material.specular_texture", 1);
 		myShader->SetInt("material.emission_texture", 2);
+		myShader->SetInt("shadowMap", 4);
 		myShader->SetInt("skybox", 3);
 
 		myShader->SetMat4("view", view);
 		myShader->SetMat4("projection", projection);
 		myShader->SetVec3("viewPos", Settings.EnableGhostMode ? first_camera->GetPosition() : third_camera->GetPosition());
+		myShader->SetMat4("lightSpaceMatrix", light_space_matrix);
+
+		glActiveTexture(GL_TEXTURE4);
+		glBindTexture(GL_TEXTURE_2D, depth_map);
 
 		myShader->SetBool("useBlinnPhong", Settings.UseBlinnPhongShading);
 		myShader->SetBool("useLighting", Settings.UseLighting);
@@ -214,7 +271,10 @@ public:
 			}
 			myShader->SetVec3("clippingPlanes[" + std::to_string(i) + "].normal", view_volume->ViewVolumeNormal[i]);
 		}
-		
+
+		RenderScene(myShader);
+
+		/*
 		// ==================== Draw origin and 3 axes ====================
 		if (Settings.ShowOriginAnd3Axes) {
 			this->DrawOriginAnd3Axes(myShader.get());
@@ -339,12 +399,27 @@ public:
 		model->Pop();
 		third_camera->SetTarget(balls[0].GetPosition());
 		myShader->Use();
+		*/
 		
 		// ==================== Draw Light Balls ====================
 		myShader->SetBool("material.enableDiffuseTexture", false);
 		myShader->SetBool("material.enableSpecularTexture", false);
 		myShader->SetBool("material.enableEmission", true);
 		myShader->SetBool("material.enableEmissionTexture", false);
+		for (unsigned int i = 0; i < DirLights.size(); i++) {
+			if (!DirLights[i]->GetEnable()) {
+				continue;
+			}
+			model->Push();
+			model->Save(glm::translate(model->Top(), DirLights[i]->GetDirection() * -1.0f));
+			model->Save(glm::scale(model->Top(), glm::vec3(0.5f)));
+			myShader->SetVec4("material.ambient", glm::vec4(DirLights[i]->GetAmbient(), 1.0f));
+			myShader->SetVec4("material.diffuse", glm::vec4(DirLights[i]->GetDiffuse(), 1.0f));
+			myShader->SetVec4("material.specular", glm::vec4(DirLights[i]->GetSpecular(), 1.0f));
+			myShader->SetFloat("material.shininess", 32.0f);
+			sphere->Draw(myShader.get(), model->Top());
+			model->Pop();
+		}
 		for(unsigned int i = 0; i < PointLights.size(); i++) {
 			if (!PointLights[i]->GetEnable()) {
 				continue;
@@ -362,6 +437,90 @@ public:
 		myShader->SetBool("material.enableEmission", false);
 
 		// ImGui::ShowDemoWindow();
+	}
+
+	void RenderSceneForDepth(const std::unique_ptr<Nexus::Shader>& shader) {
+		// cubes
+		model->Push();
+		model->Save(glm::translate(model->Top(), glm::vec3(0.0f, 1.5f, 0.0)));
+		model->Save(glm::scale(model->Top(), glm::vec3(0.5f)));
+		cube->Draw(shader.get(), model->Top());
+		model->Pop();
+
+		model->Push();
+		model->Save(glm::translate(model->Top(), glm::vec3(2.0f, 0.5f, 1.0)));
+		cube->Draw(shader.get(), model->Top());
+		model->Pop();
+
+		model->Push();
+		model->Save(glm::translate(model->Top(), glm::vec3(-1.0f, 0.8f, 2.0)));
+		model->Save(glm::rotate(model->Top(), glm::radians(60.0f), glm::normalize(glm::vec3(1.0, 0.0, 1.0))));
+		model->Save(glm::scale(model->Top(), glm::vec3(0.25f)));
+		cube->Draw(shader.get(), model->Top());
+		model->Pop();
+	}
+
+	void RenderScene(const std::unique_ptr<Nexus::Shader> &shader) {
+		// floor
+		shader->SetBool("material.enableDiffuseTexture", true);
+		shader->SetBool("material.enableSpecularTexture", false);
+		shader->SetBool("material.enableEmission", false);
+		shader->SetBool("material.enableEmissionTexture", false);
+		shader->SetFloat("material.shininess", 64.0f);
+		floor->BindTexture(0, texture_checkerboard.get());
+		floor->Draw(shader.get(), model->Top());
+
+		// cubes
+		shader->SetBool("material.enableDiffuseTexture", false);
+		shader->SetBool("material.enableSpecularTexture", false);
+		shader->SetBool("material.enableEmission", false);
+		shader->SetBool("material.enableEmissionTexture", false);
+		shader->SetVec4("material.ambient", glm::vec4(0.02f, 0.02f, 0.02f, 1.0));
+		shader->SetVec4("material.diffuse", glm::vec4(0.1f, 0.35f, 0.1f, 1.0));
+		shader->SetVec4("material.specular", glm::vec4(0.45f, 0.55f, 0.45f, 1.0));
+		shader->SetFloat("material.shininess", 16.0f);
+		model->Push();
+		model->Save(glm::translate(model->Top(), glm::vec3(0.0f, 1.5f, 0.0)));
+		model->Save(glm::scale(model->Top(), glm::vec3(0.5f)));
+		cube->Draw(shader.get(), model->Top());
+		model->Pop();
+
+		model->Push();
+		model->Save(glm::translate(model->Top(), glm::vec3(2.0f, 0.5f, 1.0)));
+		cube->Draw(shader.get(), model->Top());
+		model->Pop();
+
+		model->Push();
+		model->Save(glm::translate(model->Top(), glm::vec3(-1.0f, 0.8f, 2.0)));
+		model->Save(glm::rotate(model->Top(), glm::radians(60.0f), glm::normalize(glm::vec3(1.0, 0.0, 1.0))));
+		model->Save(glm::scale(model->Top(), glm::vec3(0.25f)));
+		cube->Draw(shader.get(), model->Top());
+		model->Pop();
+	}
+
+	void RenderQuad() {
+		if (quadVAO == 0) {
+			float quadVertices[] = {
+				// positions			// texture Coords
+				-1.0f,  1.0f, 0.0f,		0.0f, 1.0f,
+				-1.0f, -1.0f, 0.0f,		0.0f, 0.0f,
+				 1.0f,  1.0f, 0.0f,		1.0f, 1.0f,
+				 1.0f, -1.0f, 0.0f,		1.0f, 0.0f,
+			};
+			// Setup plane VAO
+			glGenVertexArrays(1, &quadVAO);
+			glGenBuffers(1, &quadVBO);
+			glBindVertexArray(quadVAO);
+			glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+			glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+			glEnableVertexAttribArray(0);
+			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+			glEnableVertexAttribArray(1);
+			glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+		}
+		glBindVertexArray(quadVAO);
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		glBindVertexArray(0);
 	}
 
 	void ShowDebugUI() override {
@@ -801,6 +960,8 @@ public:
 private:
 	std::unique_ptr<Nexus::Shader> myShader = nullptr;
 	std::unique_ptr<Nexus::Shader> normalShader = nullptr;
+	std::unique_ptr<Nexus::Shader> simpleDepthShader = nullptr;
+	std::unique_ptr<Nexus::Shader> debugDepthQuad = nullptr;
 	
 	std::unique_ptr<Nexus::FirstPersonCamera> first_camera = nullptr;
 	std::unique_ptr<Nexus::ThirdPersonCamera> third_camera = nullptr;
@@ -819,6 +980,13 @@ private:
 	std::vector<Nexus::DirectionalLight*> DirLights;
 	std::vector<Nexus::PointLight*> PointLights;
 	std::vector<Nexus::SpotLight*> SpotLights;
+
+	GLuint SHADOW_WIDTH = 2048, SHADOW_HEIGHT = 2048;
+	GLuint depth_map_fbo;
+	GLuint depth_map;
+	
+	unsigned int quadVAO = 0;
+	unsigned int quadVBO;
 
 	std::unique_ptr<Nexus::Fog> fog;
 
