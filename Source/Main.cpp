@@ -1,6 +1,3 @@
-#include <imgui.h>
-#include <random>
-
 #include "Application.h"
 #include "Logger.h"
 #include "FirsrPersonCamera.h"
@@ -18,6 +15,8 @@
 
 #include "Ball.h"
 #include "Obstacle.h"
+
+#include <random>
 
 std::mt19937_64 rand_generator;
 std::uniform_real_distribution<float> unif_ball_position_xz(-8, 8);
@@ -54,7 +53,6 @@ public:
 	}
 
 	void Initialize() override {
-
 		// Setting OpenGL
 		glEnable(GL_MULTISAMPLE);
 		glEnable(GL_DEPTH_TEST);
@@ -799,7 +797,7 @@ public:
 			ProjectionSettings.OrthogonalHeight = 100.0f;
 		}
 	}
-
+	
 private:
 	std::unique_ptr<Nexus::Shader> myShader = nullptr;
 	std::unique_ptr<Nexus::Shader> normalShader = nullptr;
