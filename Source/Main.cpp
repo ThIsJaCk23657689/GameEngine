@@ -22,18 +22,20 @@ std::mt19937_64 rand_generator;
 std::uniform_real_distribution<float> unif_ball_position_xz(-8, 8);
 std::uniform_real_distribution<float> unif_ball_position_y(2, 18);
 std::uniform_real_distribution<float> unif_ball_velocity(-2, 2);
+std::uniform_real_distribution<float> unif_ball_mass(1.0f, 20.0f);
 
 class NexusDemo final : public Nexus::Application {
 public:
 	NexusDemo() {
 		Settings.Width = 800;
 		Settings.Height = 600;
-		Settings.WindowTitle = "Game Engine #2 | Collision Detection & Culling";
+		Settings.WindowTitle = "Game Engine #3 | Physics Engine";
 		Settings.EnableDebugCallback = true;
 		Settings.EnableFullScreen = false;
 
 		Settings.EnableGhostMode = true;
-		Settings.EnableBackFaceCulling = false;
+		Settings.EnableFaceCulling = true;
+		Settings.CullingTypeStr = "Back Face";
 		Settings.ShowOriginAnd3Axes = false;
 		
 		Settings.UseBlinnPhongShading = true;
@@ -60,10 +62,10 @@ public:
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 		// Create shader program
-		// myShader = std::make_unique<Nexus::Shader>("Shaders/lighting.vert", "Shaders/lighting.frag");
-		myShader = std::make_unique<Nexus::Shader>("Shaders/lighting_shadow.vert", "Shaders/lighting_shadow.frag");
-		simpleDepthShader = std::make_unique<Nexus::Shader>("Shaders/simple_depth_shader.vert", "Shaders/simple_depth_shader.frag");
-		debugDepthQuad = std::make_unique<Nexus::Shader>("Shaders/debug_quad.vert", "Shaders/debug_quad_depth.frag");
+		myShader = std::make_unique<Nexus::Shader>("Shaders/lighting.vert", "Shaders/lighting.frag");
+		// myShader = std::make_unique<Nexus::Shader>("Shaders/lighting_shadow.vert", "Shaders/lighting_shadow.frag");
+		// simpleDepthShader = std::make_unique<Nexus::Shader>("Shaders/simple_depth_shader.vert", "Shaders/simple_depth_shader.frag");
+		// debugDepthQuad = std::make_unique<Nexus::Shader>("Shaders/debug_quad.vert", "Shaders/debug_quad_depth.frag");
 		normalShader = std::make_unique<Nexus::Shader>("Shaders/normal_visualization.vs", "Shaders/normal_visualization.fs", "Shaders/normal_visualization.gs");
 		
 		// Create Camera
@@ -90,7 +92,7 @@ public:
 
 		// Initial Light Setting
 		DirLights = {
-			new Nexus::DirectionalLight(glm::vec3(3.0f, -1.0f, -2.0f), true)
+			new Nexus::DirectionalLight(glm::vec3(3.0f, -4.0f, -2.0f), true)
 		};
 		PointLights = {
 			new Nexus::PointLight(glm::vec3(-7.1f, 14.2f, -1.4f), false),
@@ -108,6 +110,7 @@ public:
 		SpotLights[1]->SetOuterCutoff(30.0f);
 
 		// Shadow
+		/*
 		glGenFramebuffers(1, &depth_map_fbo);
 		glGenTextures(1, &depth_map);
 		glBindTexture(GL_TEXTURE_2D, depth_map);
@@ -124,16 +127,18 @@ public:
 		glDrawBuffer(GL_NONE);
 		glReadBuffer(GL_NONE);
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		*/
 
 		// Fog
 		fog = std::make_unique<Nexus::Fog>(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f), true, 0.1f, 100.0f);
 		fog->SetDensity(0.01f);
 
 		// Balls
-		for (unsigned int i = 0; i < 200; i++) {
+		for (unsigned int i = 0; i < 100; i++) {
 			glm::vec3 ball_position = glm::vec3(unif_ball_position_xz(rand_generator), unif_ball_position_y(rand_generator), unif_ball_position_xz(rand_generator));
 			glm::vec3 ball_velocity = glm::vec3(unif_ball_velocity(rand_generator), unif_ball_velocity(rand_generator), unif_ball_velocity(rand_generator));
-			Ball temp_ball(ball_position, ball_velocity);
+			float ball_mass = unif_ball_mass(rand_generator);
+			Ball temp_ball(ball_position, ball_velocity, ball_mass);
 			balls.push_back(temp_ball);
 		}
 
@@ -147,7 +152,8 @@ public:
 	}
 	
 	void Update(Nexus::DisplayMode monitor_type) override {
-
+		
+		/*
 		glEnable(GL_CULL_FACE);
 		glCullFace(GL_FRONT);
 		glFrontFace(GL_CW);
@@ -164,6 +170,7 @@ public:
 		glClear(GL_DEPTH_BUFFER_BIT);
 		RenderSceneForDepth(simpleDepthShader);
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		*/
 		
 		/*
 		SetViewMatrix(monitor_type);
@@ -177,16 +184,21 @@ public:
 		RenderQuad();
 		*/
 
-		if (Settings.EnableBackFaceCulling) {
+		if (Settings.EnableFaceCulling) {
+			// CW => Clockwise 順時針方向為正向面 
 			glEnable(GL_CULL_FACE);
-			glCullFace(GL_BACK);
 			glFrontFace(GL_CW);
+			if (Settings.CullingTypeStr == "Back Face") {
+				glCullFace(GL_BACK);
+			} else {
+				glCullFace(GL_FRONT);
+			}
 		} else {
 			glDisable(GL_CULL_FACE);
 		}
 
 		// 2. 使用正常的方式渲染場景
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		// glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		SetViewMatrix(monitor_type);
 		SetProjectionMatrix(monitor_type);
 		SetViewport(monitor_type);
@@ -196,16 +208,16 @@ public:
 		myShader->SetInt("material.diffuse_texture", 0);
 		myShader->SetInt("material.specular_texture", 1);
 		myShader->SetInt("material.emission_texture", 2);
-		myShader->SetInt("shadowMap", 4);
+		// myShader->SetInt("shadowMap", 4);
 		myShader->SetInt("skybox", 3);
 
 		myShader->SetMat4("view", view);
 		myShader->SetMat4("projection", projection);
 		myShader->SetVec3("viewPos", Settings.EnableGhostMode ? first_camera->GetPosition() : third_camera->GetPosition());
-		myShader->SetMat4("lightSpaceMatrix", light_space_matrix);
+		// myShader->SetMat4("lightSpaceMatrix", light_space_matrix);
 
-		glActiveTexture(GL_TEXTURE4);
-		glBindTexture(GL_TEXTURE_2D, depth_map);
+		// glActiveTexture(GL_TEXTURE4);
+		// glBindTexture(GL_TEXTURE_2D, depth_map);
 
 		myShader->SetBool("useBlinnPhong", Settings.UseBlinnPhongShading);
 		myShader->SetBool("useLighting", Settings.UseLighting);
@@ -272,9 +284,8 @@ public:
 			myShader->SetVec3("clippingPlanes[" + std::to_string(i) + "].normal", view_volume->ViewVolumeNormal[i]);
 		}
 
-		RenderScene(myShader);
+		// RenderScene(myShader);
 
-		/*
 		// ==================== Draw origin and 3 axes ====================
 		if (Settings.ShowOriginAnd3Axes) {
 			this->DrawOriginAnd3Axes(myShader.get());
@@ -338,15 +349,15 @@ public:
 			myShader->SetVec4("material.diffuse", balls[i].GetDiffuse());
 			myShader->SetVec4("material.specular", balls[i].GetSpecular());
 			balls[i].ViewVolumeIncludingTest(view_volume.get());
-			balls[i].Edge();
+			balls[i].Edge(elasticities);
 			for(unsigned int j = (i + 1); j < balls.size(); j++) {
-				balls[i].CollisionWithBall(balls[j]);
+				balls[i].CollisionWithBall(balls[j], elasticities);
 			}
 			
 			for(unsigned int j = 0; j < obstacles.size(); j++) {
-				balls[i].CollisionWithObstacle(obstacles[j]);
+				balls[i].CollisionWithObstacle(obstacles[j], elasticities);
 			}
-			balls[i].Update(DeltaTime);
+			balls[i].Update(DeltaTime, gravity, dragforce);
 			
 			model->Push();
 			model->Save(balls[i].GetModel());
@@ -399,7 +410,6 @@ public:
 		model->Pop();
 		third_camera->SetTarget(balls[0].GetPosition());
 		myShader->Use();
-		*/
 		
 		// ==================== Draw Light Balls ====================
 		myShader->SetBool("material.enableDiffuseTexture", false);
@@ -548,15 +558,18 @@ public:
 
 			if (ImGui::BeginTabItem("Ball")) {
 				ImGui::Text("Ball amount: %d", balls.size());
+				ImGui::SliderFloat3("Position", glm::value_ptr(current_position), -10.0, 10.0);
+				ImGui::SliderFloat3("Velocity", glm::value_ptr(current_velocity), -5.0, 5.0);
+				ImGui::SliderFloat("Mass", &current_mass, 1, 20);
 				if (ImGui::Button("Add")) {
-					Ball temp_ball(first_camera->GetPosition(), first_camera->GetFront() * abs(unif_ball_velocity(rand_generator)));
+					Ball temp_ball(first_camera->GetPosition(), first_camera->GetFront() * abs(unif_ball_velocity(rand_generator)), unif_ball_mass(rand_generator));
 					balls.push_back(temp_ball);
 				}
 				if (ImGui::Button("Add 10")) {
 					for (unsigned int i = 0; i < 10; i++) {
 						glm::vec3 ball_position = glm::vec3(unif_ball_position_xz(rand_generator), unif_ball_position_y(rand_generator), unif_ball_position_xz(rand_generator));
 						glm::vec3 ball_velocity = glm::vec3(unif_ball_velocity(rand_generator), unif_ball_velocity(rand_generator), unif_ball_velocity(rand_generator));
-						Ball temp_ball(ball_position, ball_velocity);
+						Ball temp_ball(ball_position, ball_velocity, unif_ball_mass(rand_generator));
 						balls.push_back(temp_ball);
 					}
 				}
@@ -575,6 +588,10 @@ public:
 						balls.clear();
 					}
 				}
+				ImGui::SliderFloat("gravity", &gravity, 0.0f, 10.0f, "%2.3f m/s^2");
+				ImGui::SliderFloat("elasticities", &elasticities, 0.0f, 1.0f, "%2.4f");
+				ImGui::SliderFloat("drag force", &dragforce, 0.0f, 1.0f, "%2.3f");
+				
 				ImGui::EndTabItem();
 			}
 
@@ -673,7 +690,19 @@ public:
 			if (ImGui::BeginTabItem("Illustration")) {
 				ImGui::Text("Current Screen: %d", Settings.CurrentDisplyMode);
 				ImGui::Text("Showing Axes: %s", Settings.ShowOriginAnd3Axes ? "True" : "false");
-				ImGui::Checkbox("Back Face Culling", &Settings.EnableBackFaceCulling); 
+				ImGui::Checkbox("Face Culling", &Settings.EnableFaceCulling);
+				if (ImGui::BeginCombo("Culling Type", Settings.CullingTypeStr.c_str())) {
+					for (int n = 0; n < Settings.CullingTypes.size(); n++) {
+						bool is_selected = (Settings.CullingTypeStr == Settings.CullingTypes[n]);
+						if (ImGui::Selectable(Settings.CullingTypes[n].c_str(), is_selected)) {
+							Settings.CullingTypeStr = Settings.CullingTypes[n];
+						}
+						if (is_selected) {
+							ImGui::SetItemDefaultFocus();
+						}
+					}
+					ImGui::EndCombo();
+				}
 				ImGui::Checkbox("Enable Ball Culling", &enalbe_ball_culling);
 				// ImGui::Text("Full Screen:  %s", isfullscreen ? "True" : "false");
 				ImGui::Spacing();
@@ -793,9 +822,6 @@ public:
 	
 	void OnWindowResize() override {
 		ProjectionSettings.Aspect = (float)Settings.Width / (float)Settings.Height;
-
-		// Reset viewport
-		// SetViewport(Settings.CurrentDisplyMode);
 	}
 	
 	void OnProcessInput(int key) override {
@@ -993,6 +1019,14 @@ private:
 	std::vector<Ball> balls;
 	std::vector<Obstacle> obstacles;
 	bool enalbe_ball_culling = false;
+
+	float gravity = 9.8f;
+	float elasticities = 0.9f;
+	float dragforce = 0.2f;
+
+	glm::vec3 current_position = glm::vec3(0.0f);
+	glm::vec3 current_velocity = glm::vec3(0.0f);
+	float current_mass = 1.0f;
 };
 
 int main() {

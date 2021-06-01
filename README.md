@@ -2,6 +2,7 @@
 
 ## Future Work (Maybe Some Day)
 * Divide the room by using a 3D grid to speed up collsion detection.
+* Lighting only one color to adjusted.
 
 ## Screen Shot
 ![](https://i.imgur.com/ichYuhV.jpg)

@@ -10,10 +10,13 @@ constexpr float BALL_MAX_SPEED = 5.0f;
 
 class Ball {
 public:
-	Ball(glm::vec3 positon, glm::vec3 velocity) {
+	Ball(glm::vec3 positon, glm::vec3 velocity, float mass = 1.0f) {
+		this->Mass = mass;
 		this->Position = positon;
 		this->Velocity = velocity;
 		this->Acceleration = glm::vec3(0.0f);
+
+		this->Radius = this->Mass * 0.05;
 		
 		glm::mat4 model(1.0f);
 		model = glm::translate(model, positon);
@@ -25,10 +28,16 @@ public:
 		this->Specular = glm::vec4(0.55f, 0.45f, 0.45f, 1.0);
 	}
 
-	void Update(float delta_time) {
+	void Update(float delta_time, float gravity, float dragforce) {
+
+		this->Acceleration = glm::vec3(0.0f);
+		this->Force = dragforce * -this->Velocity;
+		this->Acceleration = this->Force / this->Mass;
+		this->Acceleration += glm::vec3(0.0f, -gravity, 0.0f);
+		
 		this->Position = this->Position + this->Velocity * delta_time;
 		this->Velocity = this->Velocity + this->Acceleration * delta_time;
-		this->Velocity = Nexus::Utill::clamp(this->Velocity, 1.0f, BALL_MAX_SPEED);
+		this->Velocity = Nexus::Utill::clamp(this->Velocity, 0.0f, BALL_MAX_SPEED);
 
 		glm::mat4 model(1.0f);
 		model = glm::translate(model, this->Position);
@@ -85,45 +94,45 @@ public:
 		}
 	}
 
-	void Edge() {
+	void Edge(float elasticities) {
 		if (this->Position.x + this->Radius > 10.0f) {
 			this->Position.x = 10.0f - this->Radius;
-			this->Velocity = glm::vec3(-this->Velocity.x, this->Velocity.y, this->Velocity.z);
+			this->Velocity = elasticities * glm::vec3(-this->Velocity.x, this->Velocity.y, this->Velocity.z);
 		} else if (this->Position.x - Radius < -10.0f) {
 			this->Position.x = -10.0f + this->Radius;
-			this->Velocity = glm::vec3(-this->Velocity.x, this->Velocity.y, this->Velocity.z);
+			this->Velocity = elasticities * glm::vec3(-this->Velocity.x, this->Velocity.y, this->Velocity.z);
 		}
 		
 		if (this->Position.y + this->Radius > 20.0f) {
 			this->Position.y = 20.0f - this->Radius;
-			this->Velocity = glm::vec3(this->Velocity.x, -this->Velocity.y, this->Velocity.z);
+			this->Velocity = elasticities * glm::vec3(this->Velocity.x, -this->Velocity.y, this->Velocity.z);
 		} else if (this->Position.y - Radius < 0.0f) {
 			this->Position.y = 0.0f + this->Radius;
-			this->Velocity = glm::vec3(this->Velocity.x, -this->Velocity.y, this->Velocity.z);
+			this->Velocity = elasticities * glm::vec3(this->Velocity.x, -this->Velocity.y, this->Velocity.z);
 		}
 		
 		if (this->Position.z + this->Radius > 10.0f) {
 			this->Position.z = 10.0f - this->Radius;
-			this->Velocity = glm::vec3(this->Velocity.x, this->Velocity.y, -this->Velocity.z);
+			this->Velocity = elasticities * glm::vec3(this->Velocity.x, this->Velocity.y, -this->Velocity.z);
 		} else if (this->Position.z - Radius < -10.0f) {
 			this->Position.z = -10.0f + this->Radius;
-			this->Velocity = glm::vec3(this->Velocity.x, this->Velocity.y, -this->Velocity.z);
+			this->Velocity = elasticities * glm::vec3(this->Velocity.x, this->Velocity.y, -this->Velocity.z);
 		}
 	}
 
-	void CollisionWithBall(Ball ball) {
+	void CollisionWithBall(Ball ball, float elasticities) {
 		float distance = glm::length(this->Position - ball.Position);
 		if (distance < (this->Radius + ball.Radius + 0.01f)) {
 			// Collision
 			glm::vec3 temp = glm::normalize(ball.Position - this->Position) * (this->Radius * 4.01f);
 			ball.Position = this->Position + temp;
 			glm::vec3 temp_v = ball.Velocity;
-			ball.Velocity = -this->Velocity;
-			this->Velocity = -temp_v;
+			ball.Velocity = elasticities * -this->Velocity;
+			this->Velocity = elasticities * -temp_v;
 		}
 	}
 
-	void CollisionWithObstacle(Obstacle obstacle) {
+	void CollisionWithObstacle(Obstacle obstacle, float elasticities) {
 		glm::vec3 diff = this->Position - obstacle.GetPosition();
 		glm::vec3 aabb_half_extents = obstacle.GetSize() / 2.0f;
 		glm::vec3 clamped = glm::clamp(diff, -aabb_half_extents, aabb_half_extents);
@@ -133,10 +142,13 @@ public:
 		if (glm::length(diff) < this->Radius) {
 			// Collision
 			this->Position = closest + glm::normalize(diff) * (this->Radius + 0.01f);
-			this->Velocity = -this->Velocity;
+			this->Velocity = elasticities * -this->Velocity;
 		}
 	}
 
+	void SetMass(float mass) {
+		this->Mass = mass;
+	}
 	void SetModel(glm::mat4 model) {
 		this->Model = model;
 	}
@@ -144,24 +156,22 @@ public:
 	glm::mat4 GetModel() const {
 		return this->Model;
 	}
-
 	glm::vec3 GetPosition() const {
 		return this->Position;
 	}
-
 	glm::vec4 GetAmbient() const {
 		return this->Ambient;
 	}
 	glm::vec4 GetDiffuse() const {
 		return this->Diffuse;
 	}
-
 	glm::vec4 GetSpecular() const {
 		return this->Specular;
 	}
 	
 private:
 	float Radius = 0.2f;
+	float Mass = 1.0f;
 	glm::vec3 Position;
 	glm::vec3 Velocity;
 	glm::vec3 Acceleration;
@@ -169,6 +179,8 @@ private:
 	glm::vec4 Diffuse;
 	glm::vec4 Specular;
 	glm::mat4 Model;
+
+	glm::vec3 Force = glm::vec3(0.0f);
 
 	int ContainerTestWithAPlane(glm::vec3 position, glm::vec3 normal) {
 		// 給定一個過平面的點Q(x, y ,z)和垂直於平面的法向量N(A, B, C)，可以導出平面方程式：
