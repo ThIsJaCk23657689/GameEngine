@@ -6,8 +6,6 @@
 
 constexpr float BALL_MAX_SPEED = 5.0f;
 
-
-
 class Ball {
 public:
 	Ball(glm::vec3 positon, glm::vec3 velocity, float mass = 1.0f) {
@@ -17,7 +15,12 @@ public:
 		this->Acceleration = glm::vec3(0.0f);
 
 		this->Radius = this->Mass * 0.05;
-		
+        this->MomentsOfInertia = 2 / 5 * this->Mass * this->Radius * this->Radius;
+        this->Angle = glm::vec3(0.0f);
+        this->AngularVelocity = glm::vec3(0.0f);
+        this->TangentialVelocity = glm::vec3(0.0f);
+        this->AngularAcceleration = glm::vec3(0.0f);
+
 		glm::mat4 model(1.0f);
 		model = glm::translate(model, positon);
 		model = glm::scale(model, glm::vec3(this->Radius));
@@ -29,20 +32,27 @@ public:
 	}
 
 	void Update(float delta_time, float gravity, float dragforce) {
+		// this->Force = dragforce * -this->Velocity;
 
-		this->Acceleration = glm::vec3(0.0f);
-		this->Force = dragforce * -this->Velocity;
-		this->Acceleration = this->Force / this->Mass;
-		this->Acceleration += glm::vec3(0.0f, -gravity, 0.0f);
-		
-		this->Position = this->Position + this->Velocity * delta_time;
+		// Apply the weight of object;
+        this->ApplyGravity(gravity);
+
+        this->Acceleration = this->Force / this->Mass;
 		this->Velocity = this->Velocity + this->Acceleration * delta_time;
-		this->Velocity = Nexus::Utill::clamp(this->Velocity, 0.0f, BALL_MAX_SPEED);
+        this->Position = this->Position + this->Velocity * delta_time;
+		// this->Velocity = Nexus::Utill::clamp(this->Velocity, 0.0f, BALL_MAX_SPEED);
+
+		this->AngularAcceleration = this->Torque / this->MomentsOfInertia;
+		this->AngularVelocity = this->AngularVelocity + this->AngularAcceleration * delta_time;
+		this->Angle = this->Angle + this->AngularVelocity * delta_time;
 
 		glm::mat4 model(1.0f);
 		model = glm::translate(model, this->Position);
+		// model = glm::rotate(model, glm::radians(glm::length(this->AngularVelocity)), glm::normalize(this->AngularVelocity));
 		model = glm::scale(model, glm::vec3(this->Radius));
 		this->Model = model;
+
+        this->Force = glm::vec3(0.0f);
 	}
 
 	void ViewVolumeIncludingTest(Nexus::ViewVolume* view_volume) {
@@ -77,12 +87,12 @@ public:
 		}
 
 		if (IsOutSide) {
-			// 6¥­­±¥u­n¥ô¤@­Ó¥­­±¬O§P©w OutSide ´N¬OOutSide
+            // 6å¹³é¢åªè¦ä»»ä¸€å€‹å¹³é¢æ˜¯åˆ¤å®š OutSide å°±æ˜¯OutSide
 			this->Ambient = glm::vec4(0.2f, 0.2f, 0.2f, 1.0);
 			this->Diffuse = glm::vec4(0.25f, 0.25f, 1.0f, 1.0);
 			this->Specular = glm::vec4(0.55f, 0.45f, 0.45f, 1.0);
 		} else if (IsIntersection) {
-			// 6¥­­±¥u­n¥ô¤@­Ó¥­­±¬O§P©w IsIntersection (¥B¨S¦³¥ô¤@¥­­±¬OOutSide)
+            // 6å¹³é¢åªè¦ä»»ä¸€å€‹å¹³é¢æ˜¯åˆ¤å®š IsIntersection (ä¸”æ²’æœ‰ä»»ä¸€å¹³é¢æ˜¯OutSide)
 			this->Ambient = glm::vec4(0.2f, 0.2f, 0.2f, 1.0);
 			this->Diffuse = glm::vec4(0.25f, 1.0f, 0.25f, 1.0);
 			this->Specular = glm::vec4(0.55f, 0.45f, 0.45f, 1.0);
@@ -97,26 +107,32 @@ public:
 	void Edge(float elasticities) {
 		if (this->Position.x + this->Radius > 10.0f) {
 			this->Position.x = 10.0f - this->Radius;
-			this->Velocity = elasticities * glm::vec3(-this->Velocity.x, this->Velocity.y, this->Velocity.z);
+			this->Velocity = glm::vec3(-this->Velocity.x, this->Velocity.y, this->Velocity.z);
+			this->Velocity.x *= elasticities;
 		} else if (this->Position.x - Radius < -10.0f) {
 			this->Position.x = -10.0f + this->Radius;
-			this->Velocity = elasticities * glm::vec3(-this->Velocity.x, this->Velocity.y, this->Velocity.z);
+			this->Velocity = glm::vec3(-this->Velocity.x, this->Velocity.y, this->Velocity.z);
+            this->Velocity.x *= elasticities;
 		}
 		
 		if (this->Position.y + this->Radius > 20.0f) {
 			this->Position.y = 20.0f - this->Radius;
-			this->Velocity = elasticities * glm::vec3(this->Velocity.x, -this->Velocity.y, this->Velocity.z);
+			this->Velocity = glm::vec3(this->Velocity.x, -this->Velocity.y, this->Velocity.z);
+            this->Velocity.y *= elasticities;
 		} else if (this->Position.y - Radius < 0.0f) {
 			this->Position.y = 0.0f + this->Radius;
-			this->Velocity = elasticities * glm::vec3(this->Velocity.x, -this->Velocity.y, this->Velocity.z);
+			this->Velocity = glm::vec3(this->Velocity.x, -this->Velocity.y, this->Velocity.z);
+            this->Velocity.y *= elasticities;
 		}
 		
 		if (this->Position.z + this->Radius > 10.0f) {
 			this->Position.z = 10.0f - this->Radius;
-			this->Velocity = elasticities * glm::vec3(this->Velocity.x, this->Velocity.y, -this->Velocity.z);
+			this->Velocity = glm::vec3(this->Velocity.x, this->Velocity.y, -this->Velocity.z);
+            this->Velocity.z *= elasticities;
 		} else if (this->Position.z - Radius < -10.0f) {
 			this->Position.z = -10.0f + this->Radius;
-			this->Velocity = elasticities * glm::vec3(this->Velocity.x, this->Velocity.y, -this->Velocity.z);
+			this->Velocity = glm::vec3(this->Velocity.x, this->Velocity.y, -this->Velocity.z);
+            this->Velocity.z *= elasticities;
 		}
 	}
 
@@ -124,11 +140,15 @@ public:
 		float distance = glm::length(this->Position - ball.Position);
 		if (distance < (this->Radius + ball.Radius + 0.01f)) {
 			// Collision
-			glm::vec3 temp = glm::normalize(ball.Position - this->Position) * (this->Radius * 4.01f);
-			ball.Position = this->Position + temp;
-			glm::vec3 temp_v = ball.Velocity;
-			ball.Velocity = elasticities * -this->Velocity;
-			this->Velocity = elasticities * -temp_v;
+			glm::vec3 temp = glm::normalize(ball.Position - this->Position) * (this->Radius * 2 + ball.Radius * 2 + 0.1f);
+			ball.Position = this->Position + temp * 2.0f;
+
+			glm::vec3 temp_v = this->Velocity;
+            // glm::vec3 temp_v1 = (this->Mass - ball.Mass) / (this->Mass + ball.Mass) * this->Velocity + (2 * this->Mass) / (this->Mass + ball.Mass) * ball.Velocity;
+            // glm::vec3 temp_v2 = (2 * this->Mass) / (this->Mass + ball.Mass) * this->Velocity + (this->Mass + ball.Mass) / (this->Mass + ball.Mass) * ball.Velocity;
+
+            this->Velocity = -ball.Velocity;
+            ball.Velocity = temp_v;
 		}
 	}
 
@@ -153,46 +173,66 @@ public:
 		this->Model = model;
 	}
 
-	glm::mat4 GetModel() const {
-		return this->Model;
-	}
-	glm::vec3 GetPosition() const {
-		return this->Position;
-	}
-	glm::vec4 GetAmbient() const {
-		return this->Ambient;
-	}
+	float GetRadius() const { return this->Radius; }
+	float GetMass() const { return this->Mass; }
+    glm::vec3 GetPosition() const { return this->Position; }
+    glm::vec3 GetVelocity() const { return this->Velocity; }
+    glm::vec3 GetAcceleration() const { return this->Acceleration; }
+    glm::vec3 GetNetForce() const { return this->Force; }
+	glm::mat4 GetModel() const { return this->Model; }
+	glm::vec4 GetAmbient() const { return this->Ambient; }
 	glm::vec4 GetDiffuse() const {
 		return this->Diffuse;
 	}
 	glm::vec4 GetSpecular() const {
 		return this->Specular;
 	}
+
+	void ApplyForce(const glm::vec3& force) {
+	    this->Force += force;
+	    ApplyTorque(glm::cross(this->Position, force));
+	}
+
+	void ApplyTorque(const glm::vec3& torque) {
+	    this->Torque += torque;
+	}
+
+	void ApplyGravity(const float& gravity) {
+	    this->ApplyForce(this->Mass * glm::vec3(0.0f, -gravity, 0.0f));
+	}
 	
 private:
 	float Radius = 0.2f;
+    glm::mat4 Model;
+
 	float Mass = 1.0f;
 	glm::vec3 Position;
 	glm::vec3 Velocity;
 	glm::vec3 Acceleration;
+    glm::vec3 Force = glm::vec3(0.0f);
+
+	float MomentsOfInertia;
+    glm::vec3 Angle;
+    glm::vec3 AngularVelocity;
+    glm::vec3 TangentialVelocity;
+    glm::vec3 AngularAcceleration;
+    glm::vec3 Torque = glm::vec3(0.0f);
+
 	glm::vec4 Ambient;
 	glm::vec4 Diffuse;
 	glm::vec4 Specular;
-	glm::mat4 Model;
-
-	glm::vec3 Force = glm::vec3(0.0f);
 
 	int ContainerTestWithAPlane(glm::vec3 position, glm::vec3 normal) {
-		// µ¹©w¤@­Ó¹L¥­­±ªºÂIQ(x, y ,z)©M««ª½©ó¥­­±ªºªk¦V¶qN(A, B, C)¡A¥i¥H¾É¥X¥­­±¤èµ{¦¡¡G
-		// Ax + By + Cz + D = d¡A¨ä¤¤ D ¬O¤@­Ó±`¼Æ¡F¦Ó d ¥Nªíªº¬OÂI»P¥­­±¤§¶¡ªº¶ZÂ÷¡C
-		// ¦]¬°¬O¥­­±¤èµ{¦¡¡]¥ô¤@ÂI»P¥­­±ªº¶ZÂ÷³£¬O0¡^¡A©Ò¥H¥O d = 0¡A¥i¥H¨D¥X±`¼Æ D ¬°¦ó¡C
-		// ±µ¤U¨Ó­n¨DÂIP(x0, y0, z0)¨ì¥­­±³Ìªñ¶ZÂ÷¡A¥i¥H®M¥Î¤½¦¡ d = | Ax0 + By0 + Cz0 + D | / (A^2 + B^2 + C^2)^0.5
-		// ¦]¬°ªk¦V¶qN¨Æ¥ý¦³¥¿³W¤Æ¦¨³æ¦ì¦V¶q¡A©Ò¥Hªø«×¬° 1¡A©Ò¥H¥i¥Hª½±µ§âÂIP±a¤J¤½¦¡¥hºâ
-		// ¦]¬°³oÃä­n¥h¤À¿ëÂIP¬O¦b¥­­±ªº¥~°¼ÁÙ¬O¤º°¼¡A©Ò¥H§Ú­Ì¥i¥H§âµ´¹ï­È¥h±¼
-		// ©Ò¥H¦pªGºâ¥X¨Ó¬O¥¿­È¥Nªí¬O¥~°¼¡]»Pªk¦V¶q§¨¨¤¤p©ó90«×¡^¡F¤Ï¤§ºâ¥X¨Ó¬O­t­È¥Nªí¬O¤º°¼¡]»Pªk¦V¶q§¨¨¤¤j©ó90«×¡^
-		// ¦Ó¦]¬°§Ú­Ì¬O­pºâ²yÅé»P¥­­±ªº¶ZÂ÷¡A³o­n¦Ò¶q¨ì²yÅéªº¥b®|ªø«×¡A¨Ã«D¥u¦Ò¼{²yÅéªº¦ì¸m¡A¤£¹L¦n®a¦b¥¦¬O²yÅé
-		// ©Ò¥H¥u­n¶ZÂ÷¬O¤¶©ó r ~ -r ¤§¶¡³£ºâ¬O¬Û¥æ¡I
-		// PS: °O¦í¤@­ÓÆ[©À¡A°²³]²yÅé¦ì¸m¬°P¡A¦Ó§Ú­Ì­n­pºâªº¶ZÂ÷d¡A¨ä¹ê´N¬O¦V¶qQP§ë¼v¨ìªk¦V¶q¤W¡A©Ò¥Hµ¥©ó ||QP|| * cos(theta) ªº·§©À¡C
+        // çµ¦å®šä¸€å€‹éŽå¹³é¢çš„é»žQ(x, y ,z)å’Œåž‚ç›´æ–¼å¹³é¢çš„æ³•å‘é‡N(A, B, C)ï¼Œå¯ä»¥å°Žå‡ºå¹³é¢æ–¹ç¨‹å¼ï¼š
+        // Ax + By + Cz + D = dï¼Œå…¶ä¸­ D æ˜¯ä¸€å€‹å¸¸æ•¸ï¼›è€Œ d ä»£è¡¨çš„æ˜¯é»žèˆ‡å¹³é¢ä¹‹é–“çš„è·é›¢ã€‚
+        // å› ç‚ºæ˜¯å¹³é¢æ–¹ç¨‹å¼ï¼ˆä»»ä¸€é»žèˆ‡å¹³é¢çš„è·é›¢éƒ½æ˜¯0ï¼‰ï¼Œæ‰€ä»¥ä»¤ d = 0ï¼Œå¯ä»¥æ±‚å‡ºå¸¸æ•¸ D ç‚ºä½•ã€‚
+        // æŽ¥ä¸‹ä¾†è¦æ±‚é»žP(x0, y0, z0)åˆ°å¹³é¢æœ€è¿‘è·é›¢ï¼Œå¯ä»¥å¥—ç”¨å…¬å¼ d = | Ax0 + By0 + Cz0 + D | / (A^2 + B^2 + C^2)^0.5
+        // å› ç‚ºæ³•å‘é‡Näº‹å…ˆæœ‰æ­£è¦åŒ–æˆå–®ä½å‘é‡ï¼Œæ‰€ä»¥é•·åº¦ç‚º 1ï¼Œæ‰€ä»¥å¯ä»¥ç›´æŽ¥æŠŠé»žPå¸¶å…¥å…¬å¼åŽ»ç®—
+        // å› ç‚ºé€™é‚Šè¦åŽ»åˆ†è¾¨é»žPæ˜¯åœ¨å¹³é¢çš„å¤–å´é‚„æ˜¯å…§å´ï¼Œæ‰€ä»¥æˆ‘å€‘å¯ä»¥æŠŠçµ•å°å€¼åŽ»æŽ‰
+        // æ‰€ä»¥å¦‚æžœç®—å‡ºä¾†æ˜¯æ­£å€¼ä»£è¡¨æ˜¯å¤–å´ï¼ˆèˆ‡æ³•å‘é‡å¤¾è§’å°æ–¼90åº¦ï¼‰ï¼›åä¹‹ç®—å‡ºä¾†æ˜¯è² å€¼ä»£è¡¨æ˜¯å…§å´ï¼ˆèˆ‡æ³•å‘é‡å¤¾è§’å¤§æ–¼90åº¦ï¼‰
+        // è€Œå› ç‚ºæˆ‘å€‘æ˜¯è¨ˆç®—çƒé«”èˆ‡å¹³é¢çš„è·é›¢ï¼Œé€™è¦è€ƒé‡åˆ°çƒé«”çš„åŠå¾‘é•·åº¦ï¼Œä¸¦éžåªè€ƒæ…®çƒé«”çš„ä½ç½®ï¼Œä¸éŽå¥½å®¶åœ¨å®ƒæ˜¯çƒé«”
+        // æ‰€ä»¥åªè¦è·é›¢æ˜¯ä»‹æ–¼ r ~ -r ä¹‹é–“éƒ½ç®—æ˜¯ç›¸äº¤ï¼
+        // PS: è¨˜ä½ä¸€å€‹è§€å¿µï¼Œå‡è¨­çƒé«”ä½ç½®ç‚ºPï¼Œè€Œæˆ‘å€‘è¦è¨ˆç®—çš„è·é›¢dï¼Œå…¶å¯¦å°±æ˜¯å‘é‡QPæŠ•å½±åˆ°æ³•å‘é‡ä¸Šï¼Œæ‰€ä»¥ç­‰æ–¼ ||QP|| * cos(theta) çš„æ¦‚å¿µã€‚
 		
 		glm::vec3 temp_1 = glm::normalize(normal);
 		glm::vec3 temp_2 = this->Position - position;

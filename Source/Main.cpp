@@ -141,6 +141,7 @@ public:
 			Ball temp_ball(ball_position, ball_velocity, ball_mass);
 			balls.push_back(temp_ball);
 		}
+		currnet_ball = &balls[0];
 
 		// Obstacle
 		obstacles = {
@@ -150,15 +151,44 @@ public:
 			Obstacle(glm::vec3(3.0, 15.0f, -3.0f), glm::vec3(0.0f, 0.0f, 0.0f))
 		};
 	}
+
+	void Update() override {
+        for (unsigned int i = 0; i < balls.size(); i++) {
+            balls[i].ViewVolumeIncludingTest(view_volume.get());
+            balls[i].Edge(elasticities);
+            for(unsigned int j = (i + 1); j < balls.size(); j++) {
+                balls[i].CollisionWithBall(balls[j], elasticities);
+            }
+
+            for(unsigned int j = 0; j < obstacles.size(); j++) {
+                balls[i].CollisionWithObstacle(obstacles[j], elasticities);
+            }
+            balls[i].Update(DeltaTime, gravity, dragforce);
+        }
+
+        SetViewMatrix(Nexus::DISPLAY_MODE_DEFAULT);
+        view_volume->UpdateVertices(
+                Settings.EnableGhostMode ? first_camera->GetFOV() : third_camera->GetFOV(),
+                ProjectionSettings.IsPerspective,
+                Settings.Width,
+                Settings.Height,
+                ProjectionSettings.ClippingNear,
+                ProjectionSettings.ClippingFar,
+                ProjectionSettings.OrthogonalHeight,
+                view
+        );
+
+        third_camera->SetTarget(balls[0].GetPosition());
+	}
 	
-	void Update(Nexus::DisplayMode monitor_type) override {
+	void Render(Nexus::DisplayMode monitor_type) override {
 		
 		/*
 		glEnable(GL_CULL_FACE);
 		glCullFace(GL_FRONT);
 		glFrontFace(GL_CW);
 		
-		// 1. •˝¥Ë¨V≤`´◊∂Kπœ
+		// 1. Rendering the depth first (For shadow mapping)
 		float light_near_plane = 1.0f, light_far_plane = 20.0f;
 		glm::mat4 light_view = glm::lookAt(DirLights[0]->GetDirection() * -1.0f, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 		glm::mat4 light_projection = GetOrthoProjMatrix(-10.0f, 10.0f, -10.0f, 10.0f, light_near_plane, light_far_plane);
@@ -185,7 +215,7 @@ public:
 		*/
 
 		if (Settings.EnableFaceCulling) {
-			// CW => Clockwise ∂∂Æ…∞w§Ë¶V¨∞•ø¶V≠± 
+			// CW => Clockwise is the front face
 			glEnable(GL_CULL_FACE);
 			glFrontFace(GL_CW);
 			if (Settings.CullingTypeStr == "Back Face") {
@@ -197,7 +227,7 @@ public:
 			glDisable(GL_CULL_FACE);
 		}
 
-		// 2. ®œ•Œ•ø±`™∫§Ë¶°¥Ë¨V≥ı¥∫
+		// 2. Draw the things normally
 		// glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		SetViewMatrix(monitor_type);
 		SetProjectionMatrix(monitor_type);
@@ -348,17 +378,6 @@ public:
 			myShader->SetVec4("material.ambient", balls[i].GetAmbient());
 			myShader->SetVec4("material.diffuse", balls[i].GetDiffuse());
 			myShader->SetVec4("material.specular", balls[i].GetSpecular());
-			balls[i].ViewVolumeIncludingTest(view_volume.get());
-			balls[i].Edge(elasticities);
-			for(unsigned int j = (i + 1); j < balls.size(); j++) {
-				balls[i].CollisionWithBall(balls[j], elasticities);
-			}
-			
-			for(unsigned int j = 0; j < obstacles.size(); j++) {
-				balls[i].CollisionWithObstacle(obstacles[j], elasticities);
-			}
-			balls[i].Update(DeltaTime, gravity, dragforce);
-			
 			model->Push();
 			model->Save(balls[i].GetModel());
 			sphere->Draw(myShader.get(), model->Top());
@@ -388,17 +407,6 @@ public:
 		}
 
 		// ==================== Draw View Volume ====================
-		SetViewMatrix(Nexus::DISPLAY_MODE_DEFAULT);
-		view_volume->UpdateVertices(
-			Settings.EnableGhostMode ? first_camera->GetFOV() : third_camera->GetFOV(), 
-			ProjectionSettings.IsPerspective,
-			Settings.Width,
-			Settings.Height,
-			ProjectionSettings.ClippingNear,
-			ProjectionSettings.ClippingFar,
-			ProjectionSettings.OrthogonalHeight,
-			view
-		);
 		model->Push();
 		myShader->SetVec4("material.ambient", glm::vec4(0.2f, 0.2f, 0.2f, 0.6f));
 		myShader->SetVec4("material.diffuse", glm::vec4(0.6f, 0.6f, 0.6f, 0.6f));
@@ -406,9 +414,8 @@ public:
 		myShader->SetFloat("material.shininess", 32.0f);
 		myShader->SetMat4("model", model->Top());
 		view_volume->Draw(myShader.get(), model->Top());
-		
 		model->Pop();
-		third_camera->SetTarget(balls[0].GetPosition());
+
 		myShader->Use();
 		
 		// ==================== Draw Light Balls ====================
@@ -558,13 +565,15 @@ public:
 
 			if (ImGui::BeginTabItem("Ball")) {
 				ImGui::Text("Ball amount: %d", balls.size());
-				ImGui::SliderFloat3("Position", glm::value_ptr(current_position), -10.0, 10.0);
-				ImGui::SliderFloat3("Velocity", glm::value_ptr(current_velocity), -5.0, 5.0);
-				ImGui::SliderFloat("Mass", &current_mass, 1, 20);
-				if (ImGui::Button("Add")) {
-					Ball temp_ball(first_camera->GetPosition(), first_camera->GetFront() * abs(unif_ball_velocity(rand_generator)), unif_ball_mass(rand_generator));
+				ImGui::SliderFloat3("Position", glm::value_ptr(current_generate_position), -10.0, 10.0);
+				ImGui::SliderFloat3("Velocity", glm::value_ptr(current_generate_velocity), -5.0, 5.0);
+				ImGui::SliderFloat("Mass", &current_generate_mass, 1, 20);
+				if (ImGui::Button("Generate")) {
+					Ball temp_ball(current_generate_position, current_generate_velocity, current_generate_mass);
 					balls.push_back(temp_ball);
+					currnet_ball = &balls[0];
 				}
+				ImGui::SameLine();
 				if (ImGui::Button("Add 10")) {
 					for (unsigned int i = 0; i < 10; i++) {
 						glm::vec3 ball_position = glm::vec3(unif_ball_position_xz(rand_generator), unif_ball_position_y(rand_generator), unif_ball_position_xz(rand_generator));
@@ -575,8 +584,12 @@ public:
 				}
 				if(!balls.empty()) {
 					if (ImGui::Button("Delete")) {
+					    if (balls.size() == 1) {
+                            currnet_ball = nullptr;
+					    }
 						balls.pop_back();
 					}
+                    ImGui::SameLine();
 					if(balls.size() >= 10) {
 						if (ImGui::Button("Delete 10")) {
 							for (unsigned int i = 0; i < 10; i++) {
@@ -584,14 +597,32 @@ public:
 							}
 						}
 					}
+                    ImGui::SameLine();
 					if (ImGui::Button("Delete All")) {
+                        currnet_ball = nullptr;
 						balls.clear();
 					}
 				}
-				ImGui::SliderFloat("gravity", &gravity, 0.0f, 10.0f, "%2.3f m/s^2");
-				ImGui::SliderFloat("elasticities", &elasticities, 0.0f, 1.0f, "%2.4f");
-				ImGui::SliderFloat("drag force", &dragforce, 0.0f, 1.0f, "%2.3f");
-				
+				ImGui::SliderFloat("Gravity", &gravity, 0.0f, 10.0f, "%2.3f m/s^2");
+				ImGui::SliderFloat("Elasticities", &elasticities, 0.0f, 1.0f, "%2.4f");
+				ImGui::SliderFloat("Drag Force", &dragforce, 0.0f, 1.0f, "%2.3f");
+
+				if (!Settings.EnableGhostMode && currnet_ball != nullptr) {
+                    if (ImGui::TreeNode("Select Ball Information")) {
+                        glm::vec3 p = currnet_ball->GetPosition();
+                        glm::vec3 v = currnet_ball->GetVelocity();
+                        glm::vec3 a = currnet_ball->GetAcceleration();
+                        glm::vec3 f = currnet_ball->GetNetForce();
+                        ImGui::BulletText("Radius: %.2f m", currnet_ball->GetRadius());
+                        ImGui::BulletText("Mass: %.2f kg", currnet_ball->GetMass());
+                        ImGui::BulletText("Position: (%.2f, %.2f, %.2f)", p.x, p.y, p.z);
+                        ImGui::BulletText("Velocity: (%.2f, %.2f, %.2f) | %.2f m/s", v.x, v.y, v.z, glm::length(v));
+                        ImGui::BulletText("Acceleration: (%.2f, %.2f, %.2f)| %.2f m/s^2", a.x, a.y, a.z, glm::length(a));
+                        ImGui::BulletText("Net Force: (%.2f, %.2f, %.2f) | %.2f N", f.x, f.y, f.z, glm::length(f));
+                    }
+                    ImGui::TreePop();
+				}
+
 				ImGui::EndTabItem();
 			}
 
@@ -723,7 +754,7 @@ public:
 		shader->SetBool("material.enableEmission", true);
 		shader->SetBool("material.enableEmissionTexture", false);
 		
-		// √∏ªs•@¨…ß§º–®t≠Ï¬I°]0, 0, 0°^
+		// Draw the origin (0, 0, 0)
 		model->Push();
 		model->Save(glm::scale(model->Top(), glm::vec3(0.1f, 0.1f, 0.1f)));
 		shader->SetVec4("material.ambient", glm::vec4(0.1f, 0.1f, 0.1f, 1.0f));
@@ -733,7 +764,7 @@ public:
 		sphere->Draw(shader, model->Top());
 		model->Pop();
 
-		// √∏ªs§T≠”∂b
+		// Draw x, y ,z axes.
 		model->Push();
 		model->Push();
 		model->Save(glm::translate(model->Top(), glm::vec3(5.0f, 0.0f, 0.0f)));
@@ -882,7 +913,7 @@ public:
 			}
 		}
 
-		// §‚πqµ©∂}√ˆ
+		// ÊâãÈõªÁ≠íÈñãÈóú
 		if (key == GLFW_KEY_F) {
 			if (Settings.EnableGhostMode) {
 				if (SpotLights[1]->GetEnable()) {
@@ -904,7 +935,7 @@ public:
 			}
 		}
 
-		// §¿√Ë§¡¥´
+		// ÂàÜÈè°ÂàáÊèõ
 		if (key == GLFW_KEY_1) {
 			Settings.CurrentDisplyMode = Nexus::DISPLAY_MODE_ORTHOGONAL_X;
 			Nexus::Logger::Message(Nexus::LOG_INFO, "Switch to Orthogonal X.");
@@ -1020,13 +1051,14 @@ private:
 	std::vector<Obstacle> obstacles;
 	bool enalbe_ball_culling = false;
 
-	float gravity = 9.8f;
-	float elasticities = 0.9f;
+	float gravity = 9.81f;
+	float elasticities = 0.2f;
 	float dragforce = 0.2f;
 
-	glm::vec3 current_position = glm::vec3(0.0f);
-	glm::vec3 current_velocity = glm::vec3(0.0f);
-	float current_mass = 1.0f;
+	glm::vec3 current_generate_position = glm::vec3(0.0f);
+	glm::vec3 current_generate_velocity = glm::vec3(0.0f);
+	float current_generate_mass = 1.0f;
+	Ball* currnet_ball = nullptr;
 };
 
 int main() {
